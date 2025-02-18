@@ -25,7 +25,7 @@
 
 #define MAX_LINHAS 6
 #define MIN_LINHAS 4
-#define MAX_NAVE_LINHA 9
+#define MAX_NAVE_LINHA 11
 #define MIN_NAVE_LINHA 7
 #define MAX_NAVE MAX_LINHAS * MAX_NAVE_LINHA
 
@@ -36,7 +36,7 @@
 
 #define QTD_BARREIRAS 3
 
-#define IMUNE (j->tempoAnimacao - j->heroi.tempoVidaPerdida <= 2)
+#define IMUNE (j->tempoAnimacao - j->heroi.tempoImunidade <= 2)
 
 /* ---------------------------- */
 /*         ESTRUTURAS           */
@@ -72,6 +72,7 @@ typedef struct Naves {
     Bala bala;
     double velocidade;
     int direcao;
+    int chanceDeTiroBase;
     Sound tiro;
     Sound explosaoNaves;
 } Naves;
@@ -92,7 +93,7 @@ typedef struct Heroi {
     int velocidade;
     int direcao;
     int vidas;
-    int tempoVidaPerdida;
+    int tempoImunidade;
 
     int desaparece;
     double tempoDesaparece;
@@ -196,7 +197,6 @@ void DesenhaTempo(Jogo *j);
 void DesenhaPontuacao(Jogo* j);
 void DesenhaRodada(Jogo* j);
 void DesenhaBarreiras(Jogo *j);
-void DesenhaVitoria(Jogo* j);
 
 /* Funções de Tiro e Colisão */
 void AtiraBalas(Jogo *j);
@@ -206,7 +206,7 @@ int ColisaoBalas(Jogo *j, int i, int k);
 int ColisaoBalasHeroi(Jogo *j);
 
 /* Funções de Ranking e Tela Inicial */
-int TelaInicial(Jogo* j);
+void TelaInicial(Jogo* j);
 void DescarregaRanking(Jogo* j);
 void SalvarRanking(Jogo* j);
 int VerificaTop(Jogo* j);
@@ -232,14 +232,14 @@ int main(){
 
     InitWindow(jogo.larguraJanela, jogo.alturaJanela, "Space Invaders");
     SetTargetFPS(60);
-    IniciaJogo(&jogo);
     CarregaImagens(&jogo);
     jogo.musica = LoadMusicStream("../assets/musica.mp3");
     SetMusicVolume(jogo.musica, 0.5f);
     PlayMusicStream(jogo.musica);
     jogo.assets.transicao = LoadSound("../assets/transicao.wav");
     SetSoundVolume(jogo.assets.transicao, 1.0f);
-    while(TelaInicial(&jogo));
+    
+    TelaInicial(&jogo);
 
     while(!WindowShouldClose() && !FinalDeJogo(&jogo)){
         UpdateMusicStream(jogo.musica);
@@ -264,7 +264,7 @@ void IniciaJogo(Jogo *j){
     j->tempoAnimacao = GetTime();
     j->rodada.numeroRodadas = 1;
     j->rodada.dificuldade = 1;
-    #define TEMPO_RODADA 65
+    #define TEMPO_RODADA 60
     j->rodada.maxTempoRodada = TEMPO_RODADA;
     j->pontuacao = 0;
     j->congela = 1;
@@ -290,7 +290,7 @@ void IniciaJogo(Jogo *j){
     SetSoundVolume(j->heroi.bala.tiro, 0.3f);
     j->heroi.colisaoHeroi = LoadSound("../assets/colisao_heroi.wav");
     j->heroi.vidas = 3;
-    j->heroi.tempoVidaPerdida = j->tempoAnimacao - 3;
+    j->heroi.tempoImunidade = j->tempoAnimacao+1;
     j->heroi.desaparece = 0;
     
     IniciaNaves(j);
@@ -312,6 +312,7 @@ void IniciaNaves(Jogo *j){
     j->rodada.navesPorLinha = GetRandomValue(MIN_NAVE_LINHA, MAX_NAVE_LINHA);
     j->rodada.linhasDeNaves = GetRandomValue(MIN_LINHAS, MAX_LINHAS);
     j->rodada.qtdNave = j->rodada.navesPorLinha * j->rodada.linhasDeNaves;
+    j->naves.chanceDeTiroBase = CHANCE_DE_TIRO + (j->rodada.numeroRodadas-1);
     
     // Inicializa a matriz de naves
     int numAleatorio = 0;
@@ -335,14 +336,15 @@ void IniciaNaves(Jogo *j){
             j->nave[i][k].color = corAleatoria;
             j->nave[i][k].ativa = 1;
             j->nave[i][k].bala.ativa = 0;
-            j->nave[i][k].chanceDeTiro = CHANCE_DE_TIRO + (j->rodada.dificuldade) * (1.2 + j->rodada.linhasDeNaves - i);
+            j->nave[i][k].chanceDeTiro = j->naves.chanceDeTiroBase + (j->rodada.dificuldade) * (1.2 + j->rodada.linhasDeNaves - i);
+            j->nave[i][k].chanceDeTiro = j->nave[i][k].chanceDeTiro > 90? 85: j->nave[i][k].chanceDeTiro; 
             j->nave[i][k].bala.tempo = GetTime();
         }
     }
 
     RandomizaPosicaoNave(j);
 
-    j->naves.velocidade = 1 + (double)j->rodada.dificuldade/4;
+    j->naves.velocidade = j->rodada.dificuldade <9? 1 + (double)j->rodada.dificuldade/4 : j->naves.velocidade;
     /* direcao = 1 -> mover para direita, direcao = 0 -> mover para esquerda */
     j->naves.direcao = 1;
     j->naves.bala.ativa = 0;
@@ -431,6 +433,8 @@ void DescarregaImagens(Jogo *j){
 void AtualizaJogo(Jogo *j){
     j->tempoAnimacao = GetTime();
     
+    AtualizaRodada(j);
+
     #define TEMPO_CONGELAMENTO 1
     if(j->congela && j->tempoAnimacao - j->tempoCongela > TEMPO_CONGELAMENTO){ 
         j->congela = 0;
@@ -441,14 +445,11 @@ void AtualizaJogo(Jogo *j){
     AtualizaNavePos(j);
     AtualizaHeroiPos(j);
     AtualizaBarreiras(j);
-    AtualizaBarreiras(j);
-    AtualizaRodada(j);
     AtiraBalas(j);
     AtiraBalasHeroi(j);
 }
 
 void AtualizaFrameDesenho(Jogo *j){
-    AtualizaRodada(j);
     AtualizaJogo(j);
     DesenhaJogo(j);
 }
@@ -467,11 +468,13 @@ void AtualizaRodada(Jogo *j){
         j->rodada.maxTempoRodada = TEMPO_RODADA;
         j->rodada.inicioRodada = j->tempoAnimacao;
         j->rodada.dificuldade += j->rodada.dificuldade < 9? 1 : 0;
+
         
         IniciaNaves(j);
         IniciaBarreiras(j);
 
         j->heroi.pos.x = LARGURA_JANELA/2;
+        j->heroi.tempoImunidade = j->tempoAnimacao;
 
         j->congela = 1;
         j->tempoCongela = j->tempoAnimacao;
@@ -704,15 +707,6 @@ void DesenhaBarreiras(Jogo *j) {
     }
 }
 
-void DesenhaVitoria(Jogo* j){
-    j->assets.telaFinal = LoadTexture("../assets/YouWin.png");
-    while(IsKeyUp(KEY_ESCAPE) && !WindowShouldClose()){
-        BeginDrawing();
-        DrawTexture(j->assets.telaFinal, 0, 0, WHITE);
-        EndDrawing();
-    }
-}
-
 int TelaDerrota(Jogo* j){
     j->assets.telaFinal = LoadTexture("../assets/YouLose.png");
     while(IsKeyUp(KEY_ESCAPE) && !WindowShouldClose()){
@@ -720,12 +714,15 @@ int TelaDerrota(Jogo* j){
         DrawTexture(j->assets.telaFinal, 0, 0, WHITE);
         if(GetKeyPressed() == KEY_ENTER){
             SeekMusicStream(j->musica, 0.0f);
-            IniciaJogo(j);
+            TelaInicial(j);
+            UnloadTexture(j->assets.telaFinal);
             return 0;
         } 
 
         EndDrawing();
     }
+    UnloadTexture(j->assets.telaFinal);
+    return 1;
 }
 
 /* ---------------------------- */
@@ -792,7 +789,7 @@ int ColisaoBalas(Jogo *j, int i, int k){
         if(!IMUNE){
             j->heroi.vidas--;
             PlaySound(j->heroi.colisaoHeroi);
-            j->heroi.tempoVidaPerdida = j->tempoAnimacao;
+            j->heroi.tempoImunidade = j->tempoAnimacao;
             j->heroi.desaparece = 0;
             j->heroi.tempoDesaparece = GetTime();
         }
@@ -838,25 +835,13 @@ int ColisaoBalasHeroi(Jogo *j){
             j->heroi.bala.pos = (Rectangle){986, 1063};
         }
     }
-    for (int b = 0; b < QTD_BARREIRAS; b++) {
-        if (j->barreiras[b].ativa && CheckCollisionRecs(j->heroi.bala.pos, j->barreiras[b].pos) && j->heroi.bala.ativa) {
-            j->heroi.bala.ativa = 0;
-            j->heroi.bala.pos.x = 999;
-            j->heroi.bala.pos.y = 999;
-            j->barreiras[b].vida--;
-
-            if (j->barreiras[b].vida == 0) {
-                j->barreiras[b].ativa = 0;
-            }
-        }
-    }
     return 0;
 }
 
 /* ---------------------------- */
 /*   FUNÇÕES DE RANKING/TELA    */
 /* ---------------------------- */
-int TelaInicial(Jogo *j){
+void TelaInicial(Jogo *j){
     DescarregaRanking(j);
     int fade = 0;
     double fadeTime = GetTime();
@@ -866,6 +851,7 @@ int TelaInicial(Jogo *j){
     int key = 0;
     
     while(!WindowShouldClose()){
+        UpdateMusicStream(j->musica);
         BeginDrawing();
         ClearBackground(BLACK);
         DrawText("INVASORES ESPACIAIS", (LARGURA_JANELA - MeasureText("INVASORES ESPACIAIS", 50))/2, 50, 50, LIGHTGRAY);
@@ -889,7 +875,8 @@ int TelaInicial(Jogo *j){
         key = GetKeyPressed();
         if(key == KEY_ENTER && tamNome >= 3){
             EndDrawing();
-            return 0;
+            IniciaJogo(j);            
+            return;
         } else if(key == KEY_BACKSPACE && tamNome > 0){
             j->nomeJogador[--tamNome] = '_';
         }
@@ -901,7 +888,7 @@ int TelaInicial(Jogo *j){
 
     EndDrawing();
     }
-    return 0;
+    return;
 }
 
 void DescarregaRanking(Jogo *j){
@@ -1034,16 +1021,12 @@ void SalvarRanking(Jogo* j) {
 /*    FUNÇÕES AUXILIARES        */
 /* ---------------------------- */
 int FinalDeJogo(Jogo* j){
-    for(int i = 0; i < j->rodada.linhasDeNaves; i++){
-        for(int k = 0; k < j->rodada.navesPorLinha; k++){
-            if (j->heroi.vidas <= 0 || IsKeyDown(KEY_F2)) {
-                if (VerificaTop(j)) {
-                    SalvarRanking(j);
-                }
-                return TelaDerrota(j);
-            }
-        }
+if (j->heroi.vidas <= 0 || IsKeyDown(KEY_F2)) {
+    if (VerificaTop(j)) {
+        SalvarRanking(j);
     }
+    return TelaDerrota(j);
+}
     return 0;
 }
 
